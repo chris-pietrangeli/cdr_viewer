@@ -43,3 +43,11 @@ th, td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid #e4
 th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #616e7c; }
 .numeric { text-align: right; }
 code { font-size: 0.85rem; }
+
+h2 { font-size: 1.1rem; margin: 2rem 0 0.5rem; }
+
+.details { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 1rem 0; }
+.details dt { color: #616e7c; }
+.details dd { margin: 0; overflow-wrap: anywhere; }
+
+.failed { color: #8a1c13; }

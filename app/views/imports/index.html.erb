@@ -1,0 +1,41 @@
+<% content_for :title, "Imports" %>
+
+<header class="page-header">
+  <h1>Imports</h1>
+  <nav><%= link_to "Call records", root_path %></nav>
+</header>
+
+<p class="summary">Every file received, newest first, including files that could not be imported.</p>
+
+<% if @imports.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Import</th>
+        <th>File</th>
+        <th>Received (UTC)</th>
+        <th>SHA-256</th>
+        <th class="numeric">Imported</th>
+        <th class="numeric">Rejected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @imports.each do |import| %>
+        <tr>
+          <td><%= link_to "##{import.id}", import %></td>
+          <td><%= import.filename %></td>
+          <td><%= format_time(import.created_at) %></td>
+          <td><code title="<%= import.sha256 %>"><%= import.sha256.first(12) %>…</code></td>
+          <% if import.success? %>
+            <td class="numeric"><%= import.call_records_count %></td>
+            <td class="numeric"><%= import.rejected_rows_count %></td>
+          <% else %>
+            <td colspan="2" class="numeric failed">Failed</td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <p class="empty">Nothing has been imported yet.</p>
+<% end %>

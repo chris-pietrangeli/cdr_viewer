@@ -3,10 +3,11 @@ namespace :cdr do
   task :import, [ :path ] => :environment do |_task, args|
     abort "Usage: bin/rails 'cdr:import[path/to/file.csv]'" if args[:path].blank?
 
-    result = CdrImporter.import_file(args[:path])
-    abort result.error unless result.success?
+    import = CdrImporter.import_file(args[:path])
+    abort import.error unless import.success?
 
-    puts "Imported #{result.imported} calls, rejected #{result.rejections.size} rows"
-    result.rejections.each { |r| puts "  line #{r.line}: #{r.reason}" }
+    puts "Import ##{import.id} (sha256 #{import.sha256})"
+    puts "Imported #{import.call_records_count} calls, rejected #{import.rejected_rows_count} rows"
+    import.rejected_rows.order(:line_number).each { |row| puts "  line #{row.line_number}: #{row.reason}" }
   end
 end

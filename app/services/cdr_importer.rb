@@ -1,4 +1,5 @@
 require "csv"
+require "digest"
 
 # Imports call detail records from a CSV. Real CDR exports are messy, so each
 # row is normalised where the intent is unambiguous and rejected (with a line
@@ -15,65 +16,63 @@ class CdrImporter
     "%m/%d/%Y %I:%M %p"
   ].freeze
 
-  Rejection = Struct.new(:line, :reason, :raw)
-
-  class Result
-    attr_reader :imported, :rejections
-    attr_accessor :error
-
-    def initialize
-      @imported = 0
-      @rejections = []
-    end
-
-    def imported!
-      @imported += 1
-    end
-
-    def reject(line, reason, raw)
-      @rejections << Rejection.new(line, reason, raw)
-    end
-
-    def success?
-      error.nil?
-    end
-  end
-
   class RowError < StandardError; end
+  class FileError < StandardError; end
 
-  def initialize(io)
-    @io = io
+  def initialize(io, filename:)
+    @content = io.read
+    @filename = filename
   end
 
   def self.import_file(path)
-    File.open(path) { |file| new(file).call }
+    File.open(path, "rb") { |file| new(file, filename: File.basename(path)).call }
   end
 
+  # Returns the Import that records this attempt. The fingerprint is taken
+  # from the bytes exactly as received, before any parsing.
   def call
-    result = Result.new
-    csv = CSV.new(@io, headers: true, skip_blanks: true, header_converters: ->(h) { h.to_s.strip.downcase })
+    import = Import.create!(filename: @filename, sha256: Digest::SHA256.hexdigest(@content), byte_size: @content.bytesize)
 
-    CallRecord.transaction do
-      while (row = csv.shift)
-        if (missing = REQUIRED_HEADERS - csv.headers).any?
-          result.error = "Missing column(s): #{missing.join(', ')}"
-          break
-        end
-
-        import_row(row, csv.lineno, result)
-      end
+    begin
+      # requires_new so a file-level failure undoes this file's rows and
+      # nothing else, even when the caller already has a transaction open.
+      Import.transaction(requires_new: true) { import_rows(import) }
+    rescue FileError => e
+      import.reload.update!(error: e.message)
+    rescue CSV::MalformedCSVError => e
+      import.reload.update!(error: "Could not read CSV: #{e.message}")
     end
 
-    result.error ||= "File has no header row" if csv.headers == true
-    result
-  rescue CSV::MalformedCSVError => e
-    result.error = "Could not read CSV: #{e.message}"
-    result
+    import.reload
   end
 
   private
 
-  def import_row(row, line, result)
+  def import_rows(import)
+    text = @content.dup.force_encoding(Encoding::UTF_8)
+    csv = CSV.new(text, headers: true, header_converters: ->(h) { h.to_s.strip.downcase })
+    line = 2 # line 1 is the header
+
+    while (row = csv.shift)
+      if (missing = REQUIRED_HEADERS - csv.headers).any?
+        raise FileError, "Missing column(s): #{missing.join(', ')}"
+      end
+
+      # csv.line is the text as it appears in the file, which is what a
+      # rejection should quote; row.to_csv would be a re-serialised copy.
+      raw = csv.line
+      import_row(import, row, line, raw.chomp) unless raw.strip.empty?
+
+      # csv.lineno counts rows, not lines: it skips blank lines and counts a
+      # quoted field containing a line break as one. Count from the raw text
+      # so the number matches what someone sees when they open the file.
+      line += [ raw.count("\n"), 1 ].max
+    end
+
+    raise FileError, "File has no header row" if csv.headers == true
+  end
+
+  def import_row(import, row, line, raw)
     attributes = {
       started_at: parse_timestamp(row["timestamp"]),
       from_number: normalize_number(row["from_number"], "from number"),
@@ -82,14 +81,13 @@ class CdrImporter
       cell_tower_id: row["cell_tower_id"].to_s.strip.upcase.presence
     }
 
-    if CallRecord.exists?(attributes.slice(:started_at, :from_number, :to_number))
-      raise RowError, "duplicate of a call already imported"
+    if (original = CallRecord.find_by(attributes.slice(:started_at, :from_number, :to_number)))
+      raise RowError, "duplicate of a call already imported (#{original.import.filename}, line #{original.source_line})"
     end
 
-    CallRecord.create!(attributes)
-    result.imported!
+    import.call_records.create!(attributes.merge(source_line: line))
   rescue RowError => e
-    result.reject(line, e.message, row.to_csv.chomp)
+    import.rejected_rows.create!(line_number: line, reason: e.message, raw: raw)
   end
 
   def parse_timestamp(value)

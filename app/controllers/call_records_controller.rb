@@ -4,10 +4,12 @@ class CallRecordsController < ApplicationController
   def index
     @from = parse_date(params[:from])
     @to = parse_date(params[:to])
+    @import = Import.find_by(id: params[:import_id])
 
-    calls = CallRecord.chronological
+    calls = CallRecord.chronological.includes(:import)
     calls = calls.on_or_after(@from) if @from
     calls = calls.on_or_before(@to) if @to
+    calls = calls.where(import: @import) if @import
 
     @total = calls.count
     @call_records = calls.limit(MAX_ROWS)

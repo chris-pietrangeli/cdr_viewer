@@ -2,8 +2,10 @@ require "test_helper"
 
 class CallRecordsControllerTest < ActionDispatch::IntegrationTest
   setup do
+    @import = create_import(filename: "march.csv")
     [ [ 1, "+12025550101" ], [ 2, "+12025550133" ], [ 3, "+12025550177" ] ].each do |day, from|
-      CallRecord.create!(started_at: Time.utc(2026, 3, day, 12), from_number: from, to_number: "+12025550142", duration_seconds: 60)
+      @import.call_records.create!(started_at: Time.utc(2026, 3, day, 12), from_number: from, to_number: "+12025550142",
+                                   duration_seconds: 60, source_line: day + 1)
     end
   end
 
@@ -28,21 +30,20 @@ class CallRecordsControllerTest < ActionDispatch::IntegrationTest
     assert_select "tbody tr", 3
   end
 
-  test "uploading a CSV imports it and shows the rejected rows" do
-    file = fixture_file_upload("calls.csv", "text/csv")
+  test "shows the file and line each call came from" do
+    get root_path
 
-    assert_difference -> { CallRecord.count }, 1 do
-      post imports_path, params: { file: file }
-    end
-
-    assert_response :success
-    assert_select "tbody tr", 1
-    assert_select "td", text: "duration is missing"
+    assert_select "td a[href=?]", import_path(@import), text: "march.csv:2"
   end
 
-  test "importing without a file redirects with a message" do
-    post imports_path
+  test "filters calls by the import they came from" do
+    other = create_import(filename: "april.csv")
+    other.call_records.create!(started_at: Time.utc(2026, 4, 1, 12), from_number: "+12025550155", to_number: "+12025550142",
+                               duration_seconds: 60, source_line: 2)
 
-    assert_redirected_to root_path
+    get call_records_path, params: { import_id: other.id }
+
+    assert_select "tbody tr", 1
+    assert_select "td", text: "+12025550155"
   end
 end

@@ -2,7 +2,8 @@ require "test_helper"
 
 class CallRecordTest < ActiveSupport::TestCase
   def create_call(started_at)
-    CallRecord.create!(started_at: started_at, from_number: "+12025550101", to_number: "+12025550142", duration_seconds: 10)
+    create_import.call_records.create!(started_at: started_at, from_number: "+12025550101", to_number: "+12025550142",
+                                       duration_seconds: 10, source_line: 2)
   end
 
   test "date scopes include the whole of the boundary days" do
@@ -22,5 +23,13 @@ class CallRecordTest < ActiveSupport::TestCase
     call = CallRecord.new(started_at: Time.current, from_number: "+12025550101", to_number: "+12025550142", duration_seconds: -1)
 
     assert_not call.valid?
+  end
+
+  test "cannot be saved without the import and line it came from" do
+    call = CallRecord.new(started_at: Time.current, from_number: "+12025550101", to_number: "+12025550142", duration_seconds: 1)
+
+    assert_not call.valid?
+    assert_includes call.errors.attribute_names, :import
+    assert_includes call.errors.attribute_names, :source_line
   end
 end

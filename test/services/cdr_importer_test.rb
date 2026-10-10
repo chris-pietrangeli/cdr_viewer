@@ -3,16 +3,16 @@ require "test_helper"
 class CdrImporterTest < ActiveSupport::TestCase
   HEADER = "timestamp,from_number,to_number,duration,cell_tower_id".freeze
 
-  def import(*rows, header: HEADER)
-    CdrImporter.new(StringIO.new([ header, *rows ].join("\n"))).call
+  def import(*rows, header: HEADER, filename: "test.csv")
+    CdrImporter.new(StringIO.new([ header, *rows ].join("\n")), filename: filename).call
   end
 
   test "imports a clean row" do
     result = import("2026-03-01 08:14:22,+12025550101,+12025550142,187,TWR-0012")
 
     assert result.success?
-    assert_equal 1, result.imported
-    assert_empty result.rejections
+    assert_equal 1, result.call_records_count
+    assert_empty result.rejected_rows
 
     call = CallRecord.sole
     assert_equal Time.utc(2026, 3, 1, 8, 14, 22), call.started_at
@@ -58,20 +58,27 @@ class CdrImporterTest < ActiveSupport::TestCase
   test "imports a call with no tower id rather than dropping it" do
     result = import("2026-03-03 11:00:00,+12025550142,+12025550188,60,")
 
-    assert_equal 1, result.imported
+    assert_equal 1, result.call_records_count
     assert_nil CallRecord.sole.cell_tower_id
   end
 
   test "keeps unanswered calls with a zero duration" do
-    assert_equal 1, import("2026-03-01 19:30:01,+12025550142,+12025550188,0,TWR-1").imported
+    assert_equal 1, import("2026-03-01 19:30:01,+12025550142,+12025550188,0,TWR-1").call_records_count
+  end
+
+  test "line numbers match the file when a quoted field spans two lines" do
+    result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,\"TWR\n-1\"",
+                    "2026-03-01 09:00:00,+12025550101,,10,TWR-1")
+
+    assert_equal 4, result.rejected_rows.sole.line_number
   end
 
   test "skips blank lines" do
     result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1", "",
                     "2026-03-01 09:00:00,+12025550101,+12025550142,10,TWR-1")
 
-    assert_equal 2, result.imported
-    assert_empty result.rejections
+    assert_equal 2, result.call_records_count
+    assert_empty result.rejected_rows
   end
 
   test "rejects bad rows with a reason and keeps importing" do
@@ -86,7 +93,7 @@ class CdrImporterTest < ActiveSupport::TestCase
       "2026-03-04 09:44:51,+12025550101,+12025550177,158,TWR-1"
     )
 
-    assert_equal 1, result.imported
+    assert_equal 1, result.call_records_count
     assert_equal [
       [ 2, 'timestamp "2026-02-30 10:00:00" is not a recognised date/time' ],
       [ 3, 'timestamp "yesterday afternoon" is not a recognised date/time' ],
@@ -95,37 +102,62 @@ class CdrImporterTest < ActiveSupport::TestCase
       [ 6, 'duration "a few minutes" is not a number of seconds or m:ss' ],
       [ 7, "to number is missing" ],
       [ 8, "to number is missing" ]
-    ], result.rejections.map { |r| [ r.line, r.reason ] }
+    ], result.rejected_rows.order(:line_number).pluck(:line_number, :reason)
   end
 
-  test "reports the original row text for a rejection" do
-    result = import("2026-03-04 08:03:15,+12025550155,,240,TWR-1")
+  test "keeps a rejected row exactly as it appears in the file" do
+    result = import(' 2026-03-04 08:03:15 ,"+12025550155",,240,twr-1')
 
-    assert_equal "2026-03-04 08:03:15,+12025550155,,240,TWR-1", result.rejections.sole.raw
+    assert_equal ' 2026-03-04 08:03:15 ,"+12025550155",,240,twr-1', result.rejected_rows.sole.raw
   end
 
   test "rejects duplicates within a file, even when formatted differently" do
     result = import("2026-03-01 08:14:22,+12025550101,+12025550142,187,TWR-1",
                     "03/01/2026 08:14:22,(202) 555-0101,202-555-0142,187,TWR-1")
 
-    assert_equal 1, result.imported
-    assert_equal "duplicate of a call already imported", result.rejections.sole.reason
+    assert_equal 1, result.call_records_count
+    assert_equal "duplicate of a call already imported (test.csv, line 2)", result.rejected_rows.sole.reason
   end
 
-  test "importing the same file twice adds nothing" do
+  test "importing the same file twice adds no calls but records both attempts" do
     row = "2026-03-01 08:14:22,+12025550101,+12025550142,187,TWR-1"
-    import(row)
-    result = import(row)
+    first = import(row)
+    second = import(row)
 
-    assert_equal 0, result.imported
+    assert_equal 0, second.call_records_count
     assert_equal 1, CallRecord.count
+    assert_equal [ first ], second.identical_uploads.to_a
+  end
+
+  test "records the file name, size and SHA-256 of the bytes received" do
+    content = "#{HEADER}\n2026-03-01 08:14:22,+12025550101,+12025550142,187,TWR-1\n"
+    result = CdrImporter.new(StringIO.new(content), filename: "carrier_export.csv").call
+
+    assert_equal "carrier_export.csv", result.filename
+    assert_equal content.bytesize, result.byte_size
+    assert_equal Digest::SHA256.hexdigest(content), result.sha256
+  end
+
+  test "a one-character change to the file changes its fingerprint" do
+    first = import("2026-03-01 08:14:22,+12025550101,+12025550142,187,TWR-1")
+    second = import("2026-03-01 08:14:22,+12025550101,+12025550142,188,TWR-1")
+
+    assert_not_equal first.sha256, second.sha256
+    assert_empty second.identical_uploads
+  end
+
+  test "links each call to the file and line it came from" do
+    result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1", "",
+                    "2026-03-01 09:00:00,+12025550101,+12025550142,10,TWR-1")
+
+    assert_equal [ [ result.id, 2 ], [ result.id, 4 ] ], CallRecord.chronological.pluck(:import_id, :source_line)
   end
 
   test "tolerates header case and spacing" do
     result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1",
                     header: "Timestamp, From_Number ,TO_NUMBER,duration,Cell_Tower_ID")
 
-    assert_equal 1, result.imported
+    assert_equal 1, result.call_records_count
   end
 
   test "fails the whole file when a column is missing" do
@@ -137,11 +169,24 @@ class CdrImporterTest < ActiveSupport::TestCase
     assert_equal 0, CallRecord.count
   end
 
-  test "fails cleanly on an empty file" do
-    result = CdrImporter.new(StringIO.new("")).call
+  test "a file that fails part-way saves none of its rows but is still recorded" do
+    result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1",
+                    "not a date,+12025550101,+12025550142,10,TWR-1",
+                    '2026-03-01 09:00:00,"+12025550101,+12025550142,10,TWR-1')
 
     assert_not result.success?
-    assert_equal 0, result.imported
+    assert_match(/Could not read CSV/, result.error)
+    assert_equal 0, CallRecord.count
+    assert_equal 0, RejectedRow.count
+    assert_equal [ 0, 0 ], [ result.call_records_count, result.rejected_rows_count ]
+    assert_equal [ result ], Import.all.to_a
+  end
+
+  test "fails cleanly on an empty file" do
+    result = CdrImporter.new(StringIO.new(""), filename: "empty.csv").call
+
+    assert_not result.success?
+    assert_equal 0, result.call_records_count
   end
 
   test "fails cleanly on malformed CSV" do
@@ -155,7 +200,7 @@ class CdrImporterTest < ActiveSupport::TestCase
     result = CdrImporter.import_file(Rails.root.join("db/sample/calls.csv"))
 
     assert result.success?
-    assert_equal 19, result.imported
-    assert_equal 8, result.rejections.size
+    assert_equal 19, result.call_records_count
+    assert_equal 8, result.rejected_rows_count
   end
 end

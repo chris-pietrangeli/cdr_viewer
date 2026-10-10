@@ -1,35 +1,54 @@
-<% content_for :title, "Import report" %>
+<% content_for :title, "Import ##{@import.id}" %>
 
 <header class="page-header">
-  <h1>Import report</h1>
-  <%= link_to "Back to call records", root_path %>
+  <h1>Import #<%= @import.id %></h1>
+  <nav><%= link_to "All imports", imports_path %> &middot; <%= link_to "Call records", root_path %></nav>
 </header>
 
-<% if @result.success? %>
+<% if @import.success? %>
   <p class="summary">
-    <strong><%= @filename %></strong>:
-    <%= pluralize(@result.imported, "call") %> imported,
-    <%= pluralize(@result.rejections.size, "row") %> rejected.
+    <%= link_to pluralize(@import.call_records_count, "call"), call_records_path(import_id: @import) %> imported,
+    <%= pluralize(@import.rejected_rows_count, "row") %> rejected.
   </p>
 <% else %>
-  <p class="alert"><strong><%= @filename %></strong> was not imported. <%= @result.error %></p>
+  <p class="alert">This file was not imported and no calls were saved. <%= @import.error %></p>
 <% end %>
 
-<% if @result.rejections.any? %>
+<dl class="details">
+  <dt>File</dt>
+  <dd><%= @import.filename %></dd>
+  <dt>Received</dt>
+  <dd><%= format_time(@import.created_at) %> UTC</dd>
+  <dt>Size</dt>
+  <dd><%= number_with_delimiter(@import.byte_size) %> bytes</dd>
+  <dt>SHA-256</dt>
+  <dd><code><%= @import.sha256 %></code></dd>
+  <% if @import.identical_uploads.any? %>
+    <dt>Same file as</dt>
+    <dd>
+      <% @import.identical_uploads.each do |other| %>
+        <%= link_to "Import ##{other.id}", other %> (<%= format_time(other.created_at) %> UTC)<br>
+      <% end %>
+    </dd>
+  <% end %>
+</dl>
+
+<% if @rejected_rows.any? %>
+  <h2>Rejected rows</h2>
   <table>
     <thead>
       <tr>
         <th class="numeric">Line</th>
         <th>Reason</th>
-        <th>Row</th>
+        <th>Row as it appears in the file</th>
       </tr>
     </thead>
     <tbody>
-      <% @result.rejections.each do |rejection| %>
+      <% @rejected_rows.each do |row| %>
         <tr>
-          <td class="numeric"><%= rejection.line %></td>
-          <td><%= rejection.reason %></td>
-          <td><code><%= rejection.raw %></code></td>
+          <td class="numeric"><%= row.line_number %></td>
+          <td><%= row.reason %></td>
+          <td><code><%= row.raw %></code></td>
         </tr>
       <% end %>
     </tbody>

@@ -10,6 +10,8 @@ module ActiveSupport
     # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
     fixtures :all
 
-    # Add more helper methods to be used by all tests here...
+    def create_import(filename: "test.csv")
+      Import.create!(filename: filename, sha256: ::Digest::SHA256.hexdigest(filename), byte_size: 1)
+    end
   end
 end

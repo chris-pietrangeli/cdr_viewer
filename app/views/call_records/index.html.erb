@@ -2,6 +2,7 @@
 
 <header class="page-header">
   <h1>Call records</h1>
+  <nav><%= link_to "Imports", imports_path %></nav>
   <%= form_with url: imports_path, multipart: true, data: { turbo: false }, class: "import-form" do |form| %>
     <%= form.file_field :file, accept: ".csv,text/csv", required: true %>
     <%= form.submit "Import CSV" %>
@@ -15,12 +16,14 @@
   <%= form.date_field :from, value: @from %>
   <%= form.label :to, "To" %>
   <%= form.date_field :to, value: @to %>
+  <%= form.hidden_field :import_id, value: @import.id if @import %>
   <%= form.submit "Filter", name: nil %>
-  <% if @from || @to %><%= link_to "Clear", call_records_path %><% end %>
+  <% if @from || @to || @import %><%= link_to "Clear", call_records_path %><% end %>
 <% end %>
 
 <p class="summary">
   <%= pluralize(@total, "call") %><%= " (showing first #{CallRecordsController::MAX_ROWS})" if @total > CallRecordsController::MAX_ROWS %>
+  <% if @import %>&middot; from <%= link_to "import ##{@import.id}", @import %> (<%= @import.filename %>)<% end %>
   &middot; times in UTC
 </p>
 
@@ -33,16 +36,18 @@
         <th>To</th>
         <th class="numeric">Duration</th>
         <th>Cell tower</th>
+        <th>Source</th>
       </tr>
     </thead>
     <tbody>
       <% @call_records.each do |call| %>
         <tr>
-          <td><%= call.started_at.utc.strftime("%Y-%m-%d %H:%M:%S") %></td>
+          <td><%= format_time(call.started_at) %></td>
           <td><%= call.from_number %></td>
           <td><%= call.to_number %></td>
           <td class="numeric"><%= format_duration(call.duration_seconds) %></td>
           <td><%= call.cell_tower_id || tag.span("unknown", class: "muted") %></td>
+          <td><%= link_to "#{call.import.filename}:#{call.source_line}", call.import, title: "Line #{call.source_line} of import ##{call.import_id}" %></td>
         </tr>
       <% end %>
     </tbody>
