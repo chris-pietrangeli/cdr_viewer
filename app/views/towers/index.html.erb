@@ -1,0 +1,41 @@
+<% content_for :title, "Towers" %>
+
+<header class="page-header">
+  <h1>Towers</h1>
+  <%= form_with url: imports_path, multipart: true, data: { turbo: false }, class: "import-form" do |form| %>
+    <%= form.hidden_field :kind, value: "towers" %>
+    <%= form.file_field :file, accept: ".csv,text/csv", required: true, "aria-label": "Tower list CSV" %>
+    <%= form.submit "Import tower list" %>
+  <% end %>
+</header>
+
+<% if alert %><p class="alert"><%= alert %></p><% end %>
+
+<p class="summary">
+  <%= pluralize(@towers.size, "tower") %> &middot; a call can be placed on the map once the tower it used is listed here
+</p>
+
+<% if @towers.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Tower</th>
+        <th class="numeric">Latitude</th>
+        <th class="numeric">Longitude</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @towers.each do |tower| %>
+        <tr>
+          <td><%= tower.code %></td>
+          <td class="numeric"><%= number_with_precision(tower.latitude, precision: 6) %></td>
+          <td class="numeric"><%= number_with_precision(tower.longitude, precision: 6) %></td>
+          <td><%= link_to "#{tower.import.filename}:#{tower.source_line}", tower.import %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <p class="empty">No towers yet. Import a CSV with <code>tower_id</code>, <code>latitude</code> and <code>longitude</code> columns.</p>
+<% end %>

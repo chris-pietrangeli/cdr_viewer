@@ -53,4 +53,25 @@ class ImportsControllerTest < ActionDispatch::IntegrationTest
     assert_select "tbody tr:first-child td", text: "Failed"
     assert_select "tbody tr:last-child a[href=?]", import_path(older)
   end
+
+  test "uploading a tower list imports towers, not calls" do
+    assert_difference -> { Tower.count }, 1 do
+      post imports_path, params: { kind: "towers", file: fixture_file_upload("towers.csv", "text/csv") }
+    end
+
+    import = Import.sole
+    assert_equal "towers", import.kind
+
+    follow_redirect!
+    assert_select ".summary", text: /1 tower imported,\s+1 row rejected/
+    assert_select "td", text: "coordinates 0, 0 are a placeholder, not a location"
+  end
+
+  test "a tower list uploaded as calls is refused, not misread" do
+    post imports_path, params: { file: fixture_file_upload("towers.csv", "text/csv") }
+    follow_redirect!
+
+    assert_select ".alert", text: /Unrecognised column layout: tower_id, latitude, longitude/
+    assert_equal 0, Tower.count
+  end
 end

@@ -24,6 +24,12 @@
   </head>
 
   <body>
+    <nav class="site-nav">
+      <%= link_to "Call records", root_path %>
+      <%= link_to "Towers", towers_path %>
+      <%= link_to "Imports", imports_path %>
+    </nav>
+
     <%= yield %>
   </body>
 </html>

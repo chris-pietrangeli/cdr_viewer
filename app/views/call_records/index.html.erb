@@ -2,56 +2,79 @@
 
 <header class="page-header">
   <h1>Call records</h1>
-  <nav><%= link_to "Imports", imports_path %></nav>
   <%= form_with url: imports_path, multipart: true, data: { turbo: false }, class: "import-form" do |form| %>
-    <%= form.file_field :file, accept: ".csv,text/csv", required: true %>
+    <%= form.file_field :file, accept: ".csv,text/csv", required: true, "aria-label": "Call records CSV" %>
     <%= form.submit "Import CSV" %>
   <% end %>
 </header>
 
 <% if alert %><p class="alert"><%= alert %></p><% end %>
 
-<%= form_with url: call_records_path, method: :get, class: "filter-form" do |form| %>
+<%# Submitting replaces only the "calls" frame below. turbo_action: "advance"
+    still puts the filter in the address bar, so a filtered view can be
+    bookmarked, shared and reached with the back button. %>
+<%= form_with url: call_records_path, method: :get, class: "filter-form", data: { turbo_frame: "calls", turbo_action: "advance" } do |form| %>
   <%= form.label :from, "From" %>
   <%= form.date_field :from, value: @from %>
   <%= form.label :to, "To" %>
   <%= form.date_field :to, value: @to %>
+  <%= form.label :number, "Phone number" %>
+  <%= form.telephone_field :number, value: params[:number], placeholder: "(202) 555-0101" %>
   <%= form.hidden_field :import_id, value: @import.id if @import %>
   <%= form.submit "Filter", name: nil %>
-  <% if @from || @to || @import %><%= link_to "Clear", call_records_path %><% end %>
+  <%= link_to "Clear", call_records_path %>
 <% end %>
 
-<p class="summary">
-  <%= pluralize(@total, "call") %><%= " (showing first #{CallRecordsController::MAX_ROWS})" if @total > CallRecordsController::MAX_ROWS %>
-  <% if @import %>&middot; from <%= link_to "import ##{@import.id}", @import %> (<%= @import.filename %>)<% end %>
-  &middot; times in UTC
-</p>
+<%# target="_top" makes links inside the frame navigate the whole page. %>
+<%= turbo_frame_tag "calls", target: "_top" do %>
+  <% if params[:number].present? && @number.nil? %>
+    <p class="alert"><%= params[:number] %> is not a full 10-digit phone number, so calls were not filtered by number.</p>
+  <% end %>
 
-<% if @call_records.any? %>
-  <table>
-    <thead>
-      <tr>
-        <th>Date / time</th>
-        <th>From</th>
-        <th>To</th>
-        <th class="numeric">Duration</th>
-        <th>Cell tower</th>
-        <th>Source</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @call_records.each do |call| %>
+  <p class="summary">
+    <%= pluralize(@total, "call") %><%= " (showing first #{CallRecordsController::MAX_ROWS})" if @total > CallRecordsController::MAX_ROWS %>
+    <% if @number %>&middot; to or from <%= @number %><% end %>
+    <% if @import %>&middot; from <%= link_to "import ##{@import.id}", @import %> (<%= @import.filename %>)<% end %>
+    &middot; times in UTC
+  </p>
+
+  <% if @markers.any? %>
+    <div class="map" data-controller="map" data-map-towers-value="<%= @markers.to_json %>"></div>
+    <p class="summary">
+      Each circle is a tower, sized by the number of calls that used it. It shows where the tower is, not where the phone was.
+    </p>
+  <% end %>
+
+  <% if (unlocated = unlocated_summary(@unlisted_towers, @no_tower_total)) %>
+    <p class="summary"><%= unlocated %></p>
+  <% end %>
+
+  <% if @call_records.any? %>
+    <table>
+      <thead>
         <tr>
-          <td><%= format_time(call.started_at) %></td>
-          <td><%= call.from_number %></td>
-          <td><%= call.to_number %></td>
-          <td class="numeric"><%= format_duration(call.duration_seconds) %></td>
-          <td><%= call.cell_tower_id || tag.span("unknown", class: "muted") %></td>
-          <td><%= link_to "#{call.import.filename}:#{call.source_line}", call.import, title: "Line #{call.source_line} of import ##{call.import_id}" %></td>
+          <th>Date / time</th>
+          <th>From</th>
+          <th>To</th>
+          <th class="numeric">Duration</th>
+          <th>Cell tower</th>
+          <th>Source</th>
         </tr>
-      <% end %>
-    </tbody>
-  </table>
-<% else %>
-  <p class="empty">No calls found. Import a CSV, or try <code>bin/rails db:seed</code> for the sample data.</p>
+      </thead>
+      <tbody>
+        <% @call_records.each do |call| %>
+          <tr>
+            <td><%= format_time(call.started_at) %></td>
+            <td><%= call.from_number %></td>
+            <td><%= call.to_number %></td>
+            <td class="numeric"><%= format_duration(call.duration_seconds) %></td>
+            <td><%= call.cell_tower_id || tag.span("unknown", class: "muted") %></td>
+            <td><%= link_to "#{call.import.filename}:#{call.source_line}", call.import, title: "Line #{call.source_line} of import ##{call.import_id}" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <p class="empty">No calls found. Import a CSV, or try <code>bin/rails db:seed</code> for the sample data.</p>
+  <% end %>
 <% end %>

@@ -2,21 +2,26 @@
 
 <header class="page-header">
   <h1>Import #<%= @import.id %></h1>
-  <nav><%= link_to "All imports", imports_path %> &middot; <%= link_to "Call records", root_path %></nav>
 </header>
 
 <% if @import.success? %>
   <p class="summary">
-    <%= link_to pluralize(@import.call_records_count, "call"), call_records_path(import_id: @import) %> imported,
+    <% if @import.kind == "towers" %>
+      <%= link_to pluralize(@import.imported_count, "tower"), towers_path %> imported,
+    <% else %>
+      <%= link_to pluralize(@import.imported_count, "call"), call_records_path(import_id: @import) %> imported,
+    <% end %>
     <%= pluralize(@import.rejected_rows_count, "row") %> rejected.
   </p>
 <% else %>
-  <p class="alert">This file was not imported and no calls were saved. <%= @import.error %></p>
+  <p class="alert">This file was not imported and nothing from it was saved. <%= @import.error %></p>
 <% end %>
 
 <dl class="details">
   <dt>File</dt>
   <dd><%= @import.filename %></dd>
+  <dt>Contents</dt>
+  <dd><%= @import.kind.capitalize %></dd>
   <dt>Received</dt>
   <dd><%= format_time(@import.created_at) %> UTC</dd>
   <dt>Size</dt>

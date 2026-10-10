@@ -2,7 +2,6 @@
 
 <header class="page-header">
   <h1>Imports</h1>
-  <nav><%= link_to "Call records", root_path %></nav>
 </header>
 
 <p class="summary">Every file received, newest first, including files that could not be imported.</p>
@@ -13,6 +12,7 @@
       <tr>
         <th>Import</th>
         <th>File</th>
+        <th>Contents</th>
         <th>Received (UTC)</th>
         <th>SHA-256</th>
         <th class="numeric">Imported</th>
@@ -24,10 +24,11 @@
         <tr>
           <td><%= link_to "##{import.id}", import %></td>
           <td><%= import.filename %></td>
+          <td><%= import.kind.capitalize %></td>
           <td><%= format_time(import.created_at) %></td>
           <td><code title="<%= import.sha256 %>"><%= import.sha256.first(12) %>…</code></td>
           <% if import.success? %>
-            <td class="numeric"><%= import.call_records_count %></td>
+            <td class="numeric"><%= import.imported_count %></td>
             <td class="numeric"><%= import.rejected_rows_count %></td>
           <% else %>
             <td colspan="2" class="numeric failed">Failed</td>
