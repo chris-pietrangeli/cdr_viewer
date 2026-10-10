@@ -43,13 +43,15 @@ jobs:
       - name: Run unit and controller tests
         run: bin/rails db:test:prepare test
 
+      - name: Run browser tests
+        run: bin/rails test:system
+
+      # Last, because it fills the test database and the tests above expect
+      # to start with an empty one.
       - name: Check the sample data still loads
         run: bin/rails db:seed:replant
         env:
           RAILS_ENV: test
-
-      - name: Run browser tests
-        run: bin/rails test:system
 
       - name: Keep screenshots from failed browser tests
         uses: actions/upload-artifact@v4
