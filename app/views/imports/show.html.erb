@@ -1,0 +1,37 @@
+<% content_for :title, "Import report" %>
+
+<header class="page-header">
+  <h1>Import report</h1>
+  <%= link_to "Back to call records", root_path %>
+</header>
+
+<% if @result.success? %>
+  <p class="summary">
+    <strong><%= @filename %></strong>:
+    <%= pluralize(@result.imported, "call") %> imported,
+    <%= pluralize(@result.rejections.size, "row") %> rejected.
+  </p>
+<% else %>
+  <p class="alert"><strong><%= @filename %></strong> was not imported. <%= @result.error %></p>
+<% end %>
+
+<% if @result.rejections.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th class="numeric">Line</th>
+        <th>Reason</th>
+        <th>Row</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @result.rejections.each do |rejection| %>
+        <tr>
+          <td class="numeric"><%= rejection.line %></td>
+          <td><%= rejection.reason %></td>
+          <td><code><%= rejection.raw %></code></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

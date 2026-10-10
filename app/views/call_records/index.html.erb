@@ -1,0 +1,52 @@
+<% content_for :title, "Call records" %>
+
+<header class="page-header">
+  <h1>Call records</h1>
+  <%= form_with url: imports_path, multipart: true, data: { turbo: false }, class: "import-form" do |form| %>
+    <%= form.file_field :file, accept: ".csv,text/csv", required: true %>
+    <%= form.submit "Import CSV" %>
+  <% end %>
+</header>
+
+<% if alert %><p class="alert"><%= alert %></p><% end %>
+
+<%= form_with url: call_records_path, method: :get, class: "filter-form" do |form| %>
+  <%= form.label :from, "From" %>
+  <%= form.date_field :from, value: @from %>
+  <%= form.label :to, "To" %>
+  <%= form.date_field :to, value: @to %>
+  <%= form.submit "Filter", name: nil %>
+  <% if @from || @to %><%= link_to "Clear", call_records_path %><% end %>
+<% end %>
+
+<p class="summary">
+  <%= pluralize(@total, "call") %><%= " (showing first #{CallRecordsController::MAX_ROWS})" if @total > CallRecordsController::MAX_ROWS %>
+  &middot; times in UTC
+</p>
+
+<% if @call_records.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Date / time</th>
+        <th>From</th>
+        <th>To</th>
+        <th class="numeric">Duration</th>
+        <th>Cell tower</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @call_records.each do |call| %>
+        <tr>
+          <td><%= call.started_at.utc.strftime("%Y-%m-%d %H:%M:%S") %></td>
+          <td><%= call.from_number %></td>
+          <td><%= call.to_number %></td>
+          <td class="numeric"><%= format_duration(call.duration_seconds) %></td>
+          <td><%= call.cell_tower_id || tag.span("unknown", class: "muted") %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <p class="empty">No calls found. Import a CSV, or try <code>bin/rails db:seed</code> for the sample data.</p>
+<% end %>
