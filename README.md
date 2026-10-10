@@ -1,5 +1,7 @@
 # CDR Viewer
 
+[![CI](https://github.com/chris-pietrangeli/cdr_viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/chris-pietrangeli/cdr_viewer/actions/workflows/ci.yml)
+
 A small Rails app that imports call detail records (CDRs) from a CSV and shows
 them in a table and on a map, filtered by date and phone number.
 
@@ -33,7 +35,23 @@ bin/rails 'cdr:import[db/sample/calls.csv]'
 bin/rails 'cdr:import_towers[db/sample/towers.csv]'
 ```
 
-Run the tests with `bin/rails test`.
+## Tests
+
+```sh
+bin/rails test          # importers, models and controllers
+bin/rails test:system   # one browser test, in headless Chrome
+bin/ci                  # everything CI runs: style, security scans, all tests
+```
+
+The browser test,
+[test/system/investigation_test.rb](test/system/investigation_test.rb), uses
+Capybara to do what a person would: import the sample calls and towers, read
+the rejection reports, filter to one phone number, and check the map and the
+link back to the source file. It is the only test that proves the JavaScript
+works.
+
+GitHub Actions runs all of this on every push; the workflow is
+[.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## How the importer handles messy rows
 

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  lint_and_scan:
+    name: Lint and security scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Check Ruby style
+        run: bin/rubocop -f github
+
+      - name: Scan the code for common Rails security mistakes
+        run: bin/brakeman --no-pager
+
+      - name: Check gems for known vulnerabilities
+        run: bin/bundler-audit
+
+      - name: Check JavaScript dependencies for known vulnerabilities
+        run: bin/importmap audit
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Run unit and controller tests
+        run: bin/rails db:test:prepare test
+
+      - name: Check the sample data still loads
+        run: bin/rails db:seed:replant
+        env:
+          RAILS_ENV: test
+
+      - name: Run browser tests
+        run: bin/rails test:system
+
+      - name: Keep screenshots from failed browser tests
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots
+          path: tmp/screenshots
+          if-no-files-found: ignore
