@@ -21,6 +21,10 @@
   <dd><%= format_time(@import.created_at) %> UTC</dd>
   <dt>Size</dt>
   <dd><%= number_with_delimiter(@import.byte_size) %> bytes</dd>
+  <% if @import.layout %>
+    <dt>Column layout</dt>
+    <dd><code><%= @import.layout %></code></dd>
+  <% end %>
   <dt>SHA-256</dt>
   <dd><code><%= @import.sha256 %></code></dd>
   <% if @import.identical_uploads.any? %>

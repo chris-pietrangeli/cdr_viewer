@@ -9,6 +9,7 @@ most of the interesting work is in the importer, not the table.
 ## What it does
 
 - Imports a CSV of calls: date/time, from number, to number, duration, cell tower ID
+- Recognises two column layouts and refuses any other, rather than guessing
 - Shows the calls in a table, filterable by a from/to date range
 - Reports every row it could not import, with the line number and the reason
 - Keeps a record of every file received, so any call can be traced back to the
@@ -20,7 +21,7 @@ Requires Ruby 3.4 and SQLite.
 
 ```sh
 bin/setup --skip-server   # install gems, create the database
-bin/rails db:seed         # load the sample file (19 calls imported, 8 rows rejected)
+bin/rails db:seed         # load the two sample files (25 calls imported, 10 rows rejected)
 bin/rails server          # http://localhost:3000
 ```
 
@@ -54,8 +55,34 @@ stop the rest of the file.
 | Duration `-30`, `a few minutes` | Rejected |
 | Missing from/to number, truncated row | Rejected |
 
-A missing column or an unreadable file fails the whole import and saves
-nothing, since guessing which column is which would be worse than stopping.
+An unreadable file fails the whole import and saves nothing.
+
+## Column layouts
+
+Different sources name and arrange the same data differently, and layouts
+change without notice. The importer keeps a small table of the layouts it
+knows, `LAYOUTS` in the importer, and picks one by looking at the header row:
+
+| Layout | Columns |
+| --- | --- |
+| `standard` | `timestamp`, `from_number`, `to_number`, `duration`, `cell_tower_id` |
+| `split_datetime` | `Call Date`, `Call Time`, `Calling Party`, `Called Party`, `Duration (sec)`, `Site ID` |
+
+Both are invented for this project; they are not real carrier formats. There
+is a sample of the second in
+[db/sample/calls_split_datetime.csv](db/sample/calls_split_datetime.csv).
+
+- Column order, header capitalisation, stray spaces and extra columns do not
+  matter.
+- If the header fits no known layout, or fits more than one, the whole file is
+  refused with a message listing the columns found and the layouts known.
+  Guessing which column is the caller and which is the callee could produce
+  records that look right and are wrong, which is worse than stopping.
+- The layout a file was read as is saved on its import record.
+- The same call arriving in both layouts is still caught as a duplicate,
+  because rows are compared after normalising, not as text.
+
+Supporting a new layout means adding one entry to `LAYOUTS` and a test.
 
 The code is in [app/services/cdr_importer.rb](app/services/cdr_importer.rb) and
 its tests in [test/services/cdr_importer_test.rb](test/services/cdr_importer_test.rb).

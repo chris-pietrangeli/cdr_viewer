@@ -2,6 +2,7 @@ require "test_helper"
 
 class CdrImporterTest < ActiveSupport::TestCase
   HEADER = "timestamp,from_number,to_number,duration,cell_tower_id".freeze
+  SPLIT_HEADER = "Call Date,Call Time,Calling Party,Called Party,Duration (sec),Site ID".freeze
 
   def import(*rows, header: HEADER, filename: "test.csv")
     CdrImporter.new(StringIO.new([ header, *rows ].join("\n")), filename: filename).call
@@ -165,8 +166,69 @@ class CdrImporterTest < ActiveSupport::TestCase
                     header: "timestamp,from_number,to_number,duration")
 
     assert_not result.success?
-    assert_equal "Missing column(s): cell_tower_id", result.error
+    assert_match(/\AUnrecognised column layout: timestamp, from_number, to_number, duration\. Known layouts: standard \(/, result.error)
     assert_equal 0, CallRecord.count
+  end
+
+  test "imports the split date and time layout" do
+    result = import("03/06/2026,14:05:09,(202) 555-0101,202-555-0142,187,twr-0012", header: SPLIT_HEADER)
+
+    assert result.success?
+    assert_equal "split_datetime", result.layout
+
+    call = CallRecord.sole
+    assert_equal Time.utc(2026, 3, 6, 14, 5, 9), call.started_at
+    assert_equal "+12025550101", call.from_number
+    assert_equal "+12025550142", call.to_number
+    assert_equal 187, call.duration_seconds
+    assert_equal "TWR-0012", call.cell_tower_id
+  end
+
+  test "records which layout a standard file was read as" do
+    assert_equal "standard", import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1").layout
+  end
+
+  test "rejects a split layout row with a date but no time" do
+    result = import("03/06/2026,,+12025550101,+12025550142,187,TWR-1", header: SPLIT_HEADER)
+
+    assert_equal 'timestamp "03/06/2026" is not a recognised date/time', result.rejected_rows.sole.reason
+  end
+
+  test "the same call arriving in both layouts is a duplicate" do
+    import("2026-03-06 14:05:09,+12025550101,+12025550142,187,TWR-1", filename: "a.csv")
+    result = import("03/06/2026,14:05:09,+12025550101,+12025550142,187,TWR-1", header: SPLIT_HEADER, filename: "b.csv")
+
+    assert_equal "duplicate of a call already imported (a.csv, line 2)", result.rejected_rows.sole.reason
+  end
+
+  test "ignores extra columns and column order" do
+    result = import("TWR-1,10,voice,+12025550142,+12025550101,2026-03-01 08:00:00",
+                    header: "cell_tower_id,duration,call_type,to_number,from_number,timestamp")
+
+    assert_equal 1, result.call_records_count
+    assert_equal %w[+12025550101 +12025550142], CallRecord.sole.values_at(:from_number, :to_number)
+  end
+
+  test "refuses a file whose columns fit more than one layout" do
+    result = import(header: "#{HEADER},#{SPLIT_HEADER}")
+
+    assert_not result.success?
+    assert_match(/\AColumns match more than one known layout/, result.error)
+  end
+
+  test "reads a file that starts with a byte order mark" do
+    result = import("2026-03-01 08:00:00,+12025550101,+12025550142,10,TWR-1", header: "\uFEFF#{HEADER}")
+
+    assert result.success?
+    assert_equal 1, result.call_records_count
+  end
+
+  test "accepts a file with a header and no rows" do
+    result = import
+
+    assert result.success?
+    assert_equal "standard", result.layout
+    assert_equal 0, result.call_records_count
   end
 
   test "a file that fails part-way saves none of its rows but is still recorded" do
@@ -202,5 +264,15 @@ class CdrImporterTest < ActiveSupport::TestCase
     assert result.success?
     assert_equal 19, result.call_records_count
     assert_equal 8, result.rejected_rows_count
+  end
+
+  test "imports the bundled split layout sample file" do
+    result = CdrImporter.import_file(Rails.root.join("db/sample/calls_split_datetime.csv"))
+
+    assert result.success?
+    assert_equal "split_datetime", result.layout
+    assert_equal 6, result.call_records_count
+    assert_equal [ [ 6, "to number is missing" ], [ 8, 'timestamp "03/07/2026" is not a recognised date/time' ] ],
+                 result.rejected_rows.order(:line_number).pluck(:line_number, :reason)
   end
 end

@@ -30,7 +30,7 @@ class ImportsControllerTest < ActionDispatch::IntegrationTest
     post imports_path, params: { file: fixture_file_upload("not_cdr.csv", "text/csv") }
     follow_redirect!
 
-    assert_select ".alert", text: /Missing column\(s\): timestamp, from_number, to_number, duration, cell_tower_id/
+    assert_select ".alert", text: /Unrecognised column layout: name, email/
     assert_equal 0, CallRecord.count
   end
 

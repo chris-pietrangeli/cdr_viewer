@@ -5,7 +5,26 @@ require "digest"
 # row is normalised where the intent is unambiguous and rejected (with a line
 # number and a reason) where it is not. One bad row never aborts the import.
 class CdrImporter
-  REQUIRED_HEADERS = %w[timestamp from_number to_number duration cell_tower_id].freeze
+  # The column layouts this importer understands: for each one, which file
+  # column (after trimming and lower-casing) holds each field. Different
+  # sources name and arrange the same data differently, so supporting a new
+  # source means adding an entry here, not changing the parsing code.
+  LAYOUTS = {
+    "standard" => {
+      timestamp: [ "timestamp" ],
+      from_number: "from_number",
+      to_number: "to_number",
+      duration: "duration",
+      cell_tower_id: "cell_tower_id"
+    },
+    "split_datetime" => {
+      timestamp: [ "call date", "call time" ],
+      from_number: "calling party",
+      to_number: "called party",
+      duration: "duration (sec)",
+      cell_tower_id: "site id"
+    }
+  }.freeze
 
   # Timestamps without an offset are treated as UTC.
   TIMESTAMP_FORMATS = [
@@ -49,36 +68,51 @@ class CdrImporter
   private
 
   def import_rows(import)
-    text = @content.dup.force_encoding(Encoding::UTF_8)
+    # Spreadsheet exports often start with a byte order mark, which would
+    # otherwise become part of the first column's name.
+    text = @content.dup.force_encoding(Encoding::UTF_8).delete_prefix("\uFEFF")
     csv = CSV.new(text, headers: true, header_converters: ->(h) { h.to_s.strip.downcase })
+
+    row = csv.shift
+    raise FileError, "File has no header row" if csv.headers == true
+
+    layout, columns = detect_layout(csv.headers)
+    import.update!(layout: layout)
     line = 2 # line 1 is the header
 
-    while (row = csv.shift)
-      if (missing = REQUIRED_HEADERS - csv.headers).any?
-        raise FileError, "Missing column(s): #{missing.join(', ')}"
-      end
-
+    while row
       # csv.line is the text as it appears in the file, which is what a
       # rejection should quote; row.to_csv would be a re-serialised copy.
       raw = csv.line
-      import_row(import, row, line, raw.chomp) unless raw.strip.empty?
+      import_row(import, columns, row, line, raw.chomp) unless raw.strip.empty?
 
       # csv.lineno counts rows, not lines: it skips blank lines and counts a
       # quoted field containing a line break as one. Count from the raw text
       # so the number matches what someone sees when they open the file.
       line += [ raw.count("\n"), 1 ].max
+      row = csv.shift
     end
-
-    raise FileError, "File has no header row" if csv.headers == true
   end
 
-  def import_row(import, row, line, raw)
+  # A layout matches when the file has every column it needs. Anything else
+  # fails the file: guessing which column is the caller and which the callee
+  # could produce records that look right and are wrong.
+  def detect_layout(headers)
+    matches = LAYOUTS.select { |_name, columns| (columns.values.flatten - headers).empty? }
+    return matches.first if matches.one?
+
+    known = LAYOUTS.map { |name, columns| "#{name} (#{columns.values.flatten.join(', ')})" }.join("; ")
+    problem = matches.any? ? "Columns match more than one known layout" : "Unrecognised column layout"
+    raise FileError, "#{problem}: #{headers.join(', ')}. Known layouts: #{known}"
+  end
+
+  def import_row(import, columns, row, line, raw)
     attributes = {
-      started_at: parse_timestamp(row["timestamp"]),
-      from_number: normalize_number(row["from_number"], "from number"),
-      to_number: normalize_number(row["to_number"], "to number"),
-      duration_seconds: parse_duration(row["duration"]),
-      cell_tower_id: row["cell_tower_id"].to_s.strip.upcase.presence
+      started_at: parse_timestamp(row.values_at(*columns[:timestamp]).join(" ")),
+      from_number: normalize_number(row[columns[:from_number]], "from number"),
+      to_number: normalize_number(row[columns[:to_number]], "to number"),
+      duration_seconds: parse_duration(row[columns[:duration]]),
+      cell_tower_id: row[columns[:cell_tower_id]].to_s.strip.upcase.presence
     }
 
     if (original = CallRecord.find_by(attributes.slice(:started_at, :from_number, :to_number)))

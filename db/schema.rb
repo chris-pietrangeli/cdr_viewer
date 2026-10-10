@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_11_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_11_000002) do
   create_table "call_records", force: :cascade do |t|
     t.datetime "started_at", null: false
     t.string "from_number", null: false
@@ -35,6 +35,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_11_000001) do
     t.integer "rejected_rows_count", default: 0, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "layout"
     t.index ["sha256"], name: "index_imports_on_sha256"
   end
 
